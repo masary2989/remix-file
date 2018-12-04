@@ -1,10 +1,11 @@
 pragma solidity ^0.4.24;
 
 import "github.com/OpenZeppelin/openzeppelin-solidity/contracts/ownership/Ownable.sol";
+import "github.com/OpenZeppelin/openzeppelin-solidity/contracts/math/SafeMath.sol";
 
-
+// Goxしないようにちゃんとコントラクトアドレスから動かせるようにしよう
 contract MultisigPayment is Ownable{
-    
+    using SafeMath for uint;
     // valiables
     
     struct Deposit {
@@ -12,20 +13,30 @@ contract MultisigPayment is Ownable{
         address userAddress;
     }
     
-    mapping (uint => Deposit) private depositDetails;
+    struct Transaction {
+        uint depositId;
+        uint amount;
+        // bytes data;
+        bool executed;
+    }
+    
+    mapping (uint => Deposit) private deposits;
+    mapping (uint => Transaction) private transactions;
     mapping (address => uint) private userToDeposit;
+    mapping (uint => mapping (address => bool)) public confirmations;
     
     uint constant public MAX_OWNER_COUNT = 5;
     uint required = 1;
     uint depositCount = 0;
+    uint transactionCount = 0;
     
     // modifiers
     
-    modifier validRequirement(uint ownerCount, uint _required) {
-        if (ownerCount > MAX_OWNER_COUNT
-            || _required > ownerCount
+    modifier validRequirement(uint _ownerCount, uint _required) {
+        if (_ownerCount > MAX_OWNER_COUNT
+            || _required > _ownerCount
             || _required == 0
-            || ownerCount == 0)
+            || _ownerCount == 0)
             revert();
         _;
     }
@@ -45,13 +56,24 @@ contract MultisigPayment is Ownable{
     
     //@dev sudenidepositsiteruuserniha,sokonidepositsuru.
     function () payable public {
-        depositDetails[depositCount] = Deposit(msg.value, msg.sender);
+        deposits[depositCount] = Deposit(msg.value, msg.sender);
         userToDeposit[msg.sender] = depositCount;
-        depositCount++;
+        depositCount = depositCount.add(1);
     }
     
-    function spend (address toAddress) public onlyDepositedUser {
-        
+    function makeTransaction (uint _depositId, uint _amount) private {
+        transactions[transactionCount] = Transaction({
+            depositId: _depositId,
+            amount: _amount,
+            //data: _data,
+            executed: false
+        });
     }
-    
+    // @dev msg.sender? owner あとで直す
+    function confirmSelling (uint _depositId, uint _amount, address _userAddress) public onlyDepositedUser{
+        confirmations[transactionCount][msg.sender] = false;
+        confirmations[transactionCount][_userAddress] = false;
+        makeTransaction(_depositId, _amount);
+        transactionCount = transactionCount.add(1);
+    }
 }
