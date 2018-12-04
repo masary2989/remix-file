@@ -2,11 +2,14 @@ pragma solidity ^0.4.24;
 
 import "github.com/OpenZeppelin/openzeppelin-solidity/contracts/ownership/Ownable.sol";
 import "github.com/OpenZeppelin/openzeppelin-solidity/contracts/math/SafeMath.sol";
+import "./daiInterface.sol";
 
 // Goxしないようにちゃんとコントラクトアドレスから動かせるようにしよう
 contract MultisigPayment is Ownable{
     using SafeMath for uint;
     // valiables
+    
+    ERC20Interface daiContract;
     
     struct Deposit {
         uint depositAmount;
@@ -26,9 +29,9 @@ contract MultisigPayment is Ownable{
     mapping (uint => mapping (address => bool)) public confirmations;
     
     uint constant public MAX_OWNER_COUNT = 5;
-    uint required = 1;
-    uint depositCount = 0;
-    uint transactionCount = 0;
+    uint required;
+    uint depositCount;
+    uint transactionCount;
     
     // modifiers
     
@@ -48,17 +51,28 @@ contract MultisigPayment is Ownable{
 
     // functions
 
-    //constructor (address _owner)
-        //public
-    //{
-        //owner = _owner;
-    //}
+    constructor (address _daiInterfaceAddress)
+        public
+    {
+        required = 1;
+        depositCount = 0;
+        transactionCount = 0;
+        daiContract = ERC20Interface(_daiInterfaceAddress);
+    }
+    
+    function setDaiContractAddress (address _contractAddress) external onlyOwner {
+        daiContract = ERC20Interface(_contractAddress);
+    }
     
     //@dev sudenidepositsiteruuserniha,sokonidepositsuru.
     function () payable public {
         deposits[depositCount] = Deposit(msg.value, msg.sender);
         userToDeposit[msg.sender] = depositCount;
         depositCount = depositCount.add(1);
+    }
+    
+    function depositDai (uint _amount) public {
+        require(daiContract.transfer(address(this), _amount));
     }
     
     function makeTransaction (uint _depositId, uint _amount) private {
