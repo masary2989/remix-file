@@ -2,35 +2,63 @@
 // ERC Token Standard #20 Interface
 // https://github.com/ethereum/EIPs/blob/master/EIPS/eip-20-token-standard.md
 // ----------------------------------------------------------------------------
-pragma solidity ^0.4.17;
+pragma solidity ^0.4.24;
+
+import "github.com/OpenZeppelin/openzeppelin-solidity/contracts/math/SafeMath.sol";
 
 contract ERC20 {
     function totalSupply() public constant returns (uint);
     function balanceOf(address tokenOwner) public constant returns (uint balance);
     function allowance(address tokenOwner, address spender) public constant returns (uint remaining);
-    function transfer(address to, uint tokens) public returns (bool success);
+    function transfer(address to, uint value) public returns (bool success);
     function approve(address spender, uint tokens) public returns (bool success);
-    function transferFrom(address from, address to, uint tokens) public returns (bool success);
+    function transferFrom(address from, address to, uint value) public returns (bool success);
     event Transfer(address indexed from, address indexed to, uint tokens);
     event Approval(address indexed tokenOwner, address indexed spender, uint tokens);
 }
 
 contract contractB {
+    using SafeMath for uint;
   address tracker_0x_address = 0xEE6D8803B1F3A4240b1Bfd5f669c4F63B0E1C9D6; // ContractA Address
   mapping ( address => uint256 ) public balances;
+  mapping ( uint => uint ) public results;
 
-  function deposit(uint tokens) public {
+
+  // @dev ユーザーに自分でtokencontractでapproveしてもらう
+  function transfer(uint256 tokens) public {
 
     // add the deposited tokens into existing balance 
-    balances[msg.sender]+= tokens;
+    balances[address(this)].add(tokens);
 
     // transfer the tokens from the sender to this contract
-    ERC20(tracker_0x_address).transferFrom(msg.sender, address(this), tokens);
+    //ERC20(tracker_0x_address).transferFrom(msg.sender, address(this), tokens);
+    if (ERC20(tracker_0x_address).balanceOf(msg.sender) != 0){
+        results[0] = 1;
+        if (ERC20(tracker_0x_address).balanceOf(address(this)) != 0) {
+            results[1] = 1;
+            ERC20(tracker_0x_address).transferFrom(msg.sender, address(this), tokens);
+            results[2] = 1;
+        }
+        results[3] = 1;
+    }
+    results[4] = 1;
   }
 
-  function returnTokens() public {
+  function mathTest (uint bal) returns (uint) {
+      uint al = 0;
+      al.sub(bal);
+      return al;
+  }
+
+  function returnTokens() public returns (bool) {
     balances[msg.sender] = 0;
-    ERC20(tracker_0x_address).transfer(msg.sender, balances[msg.sender]);
+    bool success = ERC20(tracker_0x_address).transfer(msg.sender, balances[msg.sender]);
+    return success;
+  }
+  
+  function balanceOf () {
+      uint thisBalance = ERC20(tracker_0x_address).balanceOf(address(this));
+      results[5] = thisBalance;
   }
 
 }
