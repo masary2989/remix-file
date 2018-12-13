@@ -20,6 +20,7 @@ contract MultisigPayment is Ownable{
         uint amount;
         bool confirmed;
         bool executed;
+        address userAddress;
     }
     
     // @dev mappingは全てあとでprivateへ変更
@@ -31,6 +32,7 @@ contract MultisigPayment is Ownable{
     uint constant public MAX_OWNER_COUNT = 5;
     uint required;
     uint transactionCount;
+    uint public ownerBalance;
     
     // modifiers
     
@@ -49,21 +51,13 @@ contract MultisigPayment is Ownable{
     }
     // @dev 今支払う額も入れる
     // @dev msg.senderじゃなくて、送り先（これのmsg.senderはownerになる）
-    modifier validBalance() {
-        uint usedAmount;
-        if (userToTransactions[msg.sender].length > 0) {
-            uint[] storage transactionIds = userToTransactions[msg.sender];
-            for (uint i=0; i<transactionIds.length; i.add(1)) {
-                if (transactions[transactionIds[i]].executed
-                    && transactions[transactionIds[i]].confirmed) {
-                    usedAmount.add(transactions[transactionIds[i]].amount);
-                } else if (!transactions[transactionIds[i]].executed) {
-                    usedAmount.add(transactions[transactionIds[i]].amount);
-                }
-            
-            }
-            require(deposits[msg.sender].depositAmount.sub(usedAmount) > 0);
-        }
+    modifier validBalance(address _userAddress, uint _price) {
+        require(deposits[_userAddress].depositAmount.sub(_price) > 0);
+        _;
+    }
+    
+    modifier checkOwnTransaction (uint _transactionId) {
+        require(transactions[_transactionId].userAddress == msg.sender);
         _;
     }
 
@@ -74,6 +68,7 @@ contract MultisigPayment is Ownable{
     {
         required = 1;
         transactionCount = 0;
+        ownerBalance = 0;
         daiContract = ERC20Interface(_daiInterfaceAddress);
         
     }
@@ -93,21 +88,43 @@ contract MultisigPayment is Ownable{
     }
     
     //@dev これのmsg.senderはownerになる
-    function _makeTransaction (uint _amount) internal returns (bool success) {
-        userToTransactions[msg.sender].push(transactionCount);
+    function _makeTransaction (uint _amount, address _userAddress) internal returns (bool success) {
+        userToTransactions[_userAddress].push(transactionCount);
         transactions[transactionCount] = Transaction({
             amount: _amount,
             confirmed: false,
-            executed: false
+            executed: false,
+            userAddress: _userAddress
         });
         return (true);
     }
-    // @dev 一個目のconfirmはmsg.sender? owner あとで直す
-    function confirmSelling (uint _depositId, uint _amount, address _userAddress) public onlyOwner validBalance {
+    // @dev ownerが実行
+    function confirmSelling (uint _amount, address _userAddress) public onlyOwner validBalance(_userAddress, _amount) {
+    // function confirmSelling (uint _amount, address _userAddress) public onlyOwner {
         confirmations[transactionCount][owner()] = true;
         confirmations[transactionCount][_userAddress] = false;
-        require(_makeTransaction(_amount));
+        require(_makeTransaction(_amount, _userAddress));
+        deposits[_userAddress].depositAmount = deposits[_userAddress].depositAmount.sub(_amount);
+        ownerBalance = ownerBalance.add(_amount);
         transactionCount = transactionCount.add(1);
+    }
+    // @dev ユーザーが実行
+    function confirmPaying (uint _transactionId) public onlyDepositedUser checkOwnTransaction(_transactionId) {
+        confirmations[_transactionId][msg.sender] = true;
+        transactions[_transactionId].executed = true;
+        transactions[_transactionId].confirmed = true;
+    }
+    
+    // @dev ユーザーが実行
+    function exit (uint amount) public onlyDepositedUser {
+        deposits[msg.sender].depositAmount = deposits[msg.sender].depositAmount.sub(amount);
+        require(daiContract.transfer(msg.sender, amount));
+    }
+    
+    // @dev オーナーが実行
+    function profitWithdrawal (uint amount) public onlyOwner {
+        ownerBalance = ownerBalance.sub(amount);
+        require(daiContract.transfer(owner(), amount));
     }
     
     function userDeposit () public view returns (uint, address) {
@@ -120,10 +137,11 @@ contract MultisigPayment is Ownable{
         return (userToTransactions[msg.sender]);
     }
     
-    function userTransaction (uint _transactionId) public view returns (uint, bool, bool) {
+    function userTransaction (uint _transactionId) public view returns (uint, bool, bool, address) {
         uint amount = transactions[_transactionId].amount;
         bool confirmed = transactions[_transactionId].confirmed;
         bool executed = transactions[_transactionId].executed;
-        return (amount, confirmed, executed);
+        address userAddress = transactions[_transactionId].userAddress;
+        return (amount, confirmed, executed, userAddress);
     } 
 }
