@@ -7,6 +7,17 @@ import "./daiInterface.sol";
 // Goxしないようにちゃんとコントラクトアドレスから動かせるようにしよう
 contract MultisigPayment is Ownable{
     using SafeMath for uint;
+    
+    // event
+    
+    event ChangeDaiAddress(address daiAddress);
+    event DepositEvent(address indexed sender, uint value);
+    event OwnerConfirmation(address indexed sender, uint indexed transactionId);
+    event UserConfirmation(address indexed sender, uint indexed transactionId);
+    event UserExit(address indexed sender, uint value);
+    event OwnerWithdrawal(address indexed sender, uint value);
+    
+    
     // valiables
     
     ERC20Interface daiContract;
@@ -35,6 +46,11 @@ contract MultisigPayment is Ownable{
     uint public ownerBalance;
     
     // modifiers
+    
+    modifier onlyWallet() {
+         require(msg.sender != address(this));
+        _;
+    }
     
     modifier validRequirement(uint _ownerCount, uint _required) {
         if (_ownerCount > MAX_OWNER_COUNT
@@ -75,6 +91,7 @@ contract MultisigPayment is Ownable{
     
     function setDaiContractAddress (address _contractAddress) external onlyOwner {
         daiContract = ERC20Interface(_contractAddress);
+        emit ChangeDaiAddress(_contractAddress);
     }
     
     //@dev sudenidepositsiteruuserniha,sokonidepositsuru.
@@ -84,7 +101,12 @@ contract MultisigPayment is Ownable{
     
     function depositDai (uint _amount) public {
         require(daiContract.transferFrom(msg.sender, address(this), _amount));
-        deposits[msg.sender] = Deposit(_amount, msg.sender);
+        if (deposits[msg.sender].userAddress == 0x0) {
+            deposits[msg.sender] = Deposit(_amount, msg.sender);
+        } else {
+            deposits[msg.sender].depositAmount = deposits[msg.sender].depositAmount.add(_amount);
+        }
+        emit DepositEvent(msg.sender, _amount);
     }
     
     //@dev これのmsg.senderはownerになる
@@ -106,25 +128,29 @@ contract MultisigPayment is Ownable{
         require(_makeTransaction(_amount, _userAddress));
         deposits[_userAddress].depositAmount = deposits[_userAddress].depositAmount.sub(_amount);
         ownerBalance = ownerBalance.add(_amount);
+        emit OwnerConfirmation(msg.sender, transactionCount);
         transactionCount = transactionCount.add(1);
     }
-    // @dev ユーザーが実行
+    // @dev ユーザーが実行 拒否の関数もつくる
     function confirmPaying (uint _transactionId) public onlyDepositedUser checkOwnTransaction(_transactionId) {
         confirmations[_transactionId][msg.sender] = true;
         transactions[_transactionId].executed = true;
         transactions[_transactionId].confirmed = true;
+        emit OwnerConfirmation(msg.sender, _transactionId);
     }
     
     // @dev ユーザーが実行
     function exit (uint amount) public onlyDepositedUser {
         deposits[msg.sender].depositAmount = deposits[msg.sender].depositAmount.sub(amount);
         require(daiContract.transfer(msg.sender, amount));
+        emit UserExit(msg.sender, amount);
     }
     
     // @dev オーナーが実行
     function profitWithdrawal (uint amount) public onlyOwner {
         ownerBalance = ownerBalance.sub(amount);
         require(daiContract.transfer(owner(), amount));
+        emit UserExit(msg.sender, amount);
     }
     
     function userDeposit () public view returns (uint, address) {
