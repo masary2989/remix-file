@@ -1,10 +1,11 @@
 pragma solidity ^0.4.24;
 
-import "github.com/OpenZeppelin/openzeppelin-solidity/contracts/ownership/Ownable.sol";
-import "github.com/OpenZeppelin/openzeppelin-solidity/contracts/math/SafeMath.sol";
+
+import "github.com/masary2989/zepfile/Ownable.sol";
+import "github.com/masary2989/zepfile/SafeMath.sol";
 import "./daiInterface.sol";
 
-// Goxしないようにちゃんとコントラクトアドレスから動かせるようにしよう
+
 contract MultisigPayment is Ownable{
     using SafeMath for uint;
     
@@ -34,10 +35,10 @@ contract MultisigPayment is Ownable{
         address userAddress;
     }
     
-    // @dev mappingは全てあとでprivateへ変更
-    mapping (address => Deposit) public deposits;
-    mapping (uint => Transaction) public transactions;
-    mapping (address => uint[]) public userToTransactions;
+    // mapping
+    mapping (address => Deposit) private deposits;
+    mapping (uint => Transaction) private transactions;
+    mapping (address => uint[]) private userToTransactions;
     mapping (uint => mapping (address => bool)) public confirmations;
     
     uint constant public MAX_OWNER_COUNT = 5;
@@ -65,15 +66,19 @@ contract MultisigPayment is Ownable{
         require(deposits[msg.sender].depositAmount != 0);
         _;
     }
-    // @dev 今支払う額も入れる
-    // @dev msg.senderじゃなくて、送り先（これのmsg.senderはownerになる）
+    // @dev User balance validation
     modifier validBalance(address _userAddress, uint _price) {
         require(deposits[_userAddress].depositAmount.sub(_price) > 0);
         _;
     }
-    
+    // @dev checking own transaction or not
     modifier checkOwnTransaction (uint _transactionId) {
         require(transactions[_transactionId].userAddress == msg.sender);
+        _;
+    }
+    
+    modifier isExecutedLastTX(address _userAddress) {
+        require(transactions[userToTransactions[_userAddress][userToTransactions[_userAddress].length-1]].executed);
         _;
     }
 
@@ -94,11 +99,7 @@ contract MultisigPayment is Ownable{
         emit ChangeDaiAddress(_contractAddress);
     }
     
-    //@dev sudenidepositsiteruuserniha,sokonidepositsuru.
-    function () payable public {
-        deposits[msg.sender] = Deposit(msg.value, msg.sender);
-    }
-    
+    // deposit dai to this contract
     function depositDai (uint _amount) public {
         require(daiContract.transferFrom(msg.sender, address(this), _amount));
         if (deposits[msg.sender].userAddress == 0x0) {
@@ -109,7 +110,7 @@ contract MultisigPayment is Ownable{
         emit DepositEvent(msg.sender, _amount);
     }
     
-    //@dev これのmsg.senderはownerになる
+    //@dev making transaction struct
     function _makeTransaction (uint _amount, address _userAddress) internal returns (bool success) {
         userToTransactions[_userAddress].push(transactionCount);
         transactions[transactionCount] = Transaction({
@@ -120,38 +121,45 @@ contract MultisigPayment is Ownable{
         });
         return (true);
     }
-    // @dev ownerが実行
-    function confirmSelling (uint _amount, address _userAddress) public onlyOwner validBalance(_userAddress, _amount) {
-    // function confirmSelling (uint _amount, address _userAddress) public onlyOwner {
+    // @dev owner confirming selling item
+    function confirmSelling (uint _amount, address _userAddress) public onlyOwner validBalance(_userAddress, _amount) isExecutedLastTX(_userAddress) {
         confirmations[transactionCount][owner()] = true;
         confirmations[transactionCount][_userAddress] = false;
         require(_makeTransaction(_amount, _userAddress));
         deposits[_userAddress].depositAmount = deposits[_userAddress].depositAmount.sub(_amount);
-        ownerBalance = ownerBalance.add(_amount);
         emit OwnerConfirmation(msg.sender, transactionCount);
         transactionCount = transactionCount.add(1);
     }
-    // @dev ユーザーが実行 拒否の関数もつくる
+    // @dev user confirming paying to item
     function confirmPaying (uint _transactionId) public onlyDepositedUser checkOwnTransaction(_transactionId) {
         confirmations[_transactionId][msg.sender] = true;
+        ownerBalance = ownerBalance.add(transactions[_transactionId].amount);
         transactions[_transactionId].executed = true;
         transactions[_transactionId].confirmed = true;
         emit OwnerConfirmation(msg.sender, _transactionId);
     }
     
-    // @dev ユーザーが実行
+    function discardTX (uint _transactionId, address _userAddress) public onlyOwner {
+        require(transactions[_transactionId].userAddress == _userAddress);
+        transactions[_transactionId].confirmed = false;
+        deposits[_userAddress].depositAmount = deposits[_userAddress].depositAmount.add(transactions[_transactionId].amount);
+        transactions[_transactionId].executed = true;
+    }
+    
+    // @dev exit user deposit dai
     function exit (uint amount) public onlyDepositedUser {
         deposits[msg.sender].depositAmount = deposits[msg.sender].depositAmount.sub(amount);
         require(daiContract.transfer(msg.sender, amount));
         emit UserExit(msg.sender, amount);
     }
     
-    // @dev オーナーが実行
+    // @dev withdrawaling owner profit
     function profitWithdrawal (uint amount) public onlyOwner {
         ownerBalance = ownerBalance.sub(amount);
         require(daiContract.transfer(owner(), amount));
         emit UserExit(msg.sender, amount);
     }
+    
     
     function userDeposit () public view returns (uint, address) {
         uint depositAmount = deposits[msg.sender].depositAmount;
